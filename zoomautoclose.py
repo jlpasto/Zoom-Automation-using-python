@@ -6,18 +6,16 @@ from pywinauto import Desktop
 import time
 import sys
 
-# Global variables for script control
-watchdog = 0
+# Global variable for script control
 qty_participants = 1
 
-def answer_zoom_poll():
+def answer_zoom_poll(qty_participants=1):
     """
     Finds and answers a Zoom poll window.
     Searches for a window with "Poll" in its title, selects a radio button based on
     qty_participants, and clicks the Submit button.
     """
     try:
-        time.sleep(2)
         print("Trying to answer poll...")
         windows = Desktop(backend="uia").windows()
         for win in windows:
@@ -54,138 +52,94 @@ def answer_zoom_poll():
 
 def dismiss_stream_notification(zoom_win):
     """
-    Dismisses the "This meeting is being recorded" pop-up.
+    Dismisses the "This meeting is being recorded" pop-up using a recursive search.
     Searches within the provided Zoom window for an "OK" button
     within the pop-up that contains recording-related text.
     """
-    try:
-        time.sleep(2)
-        print("Trying to dismiss stream notification...")
-        zoom_win.set_focus()
+    def search_children_for_button(parent):
+        """Recursively searches for a button within a parent's children."""
+        try:
+            for child in parent.children():
+                name = child.window_text()
+                ctrl_type = child.element_info.control_type
 
-        def search_children_for_button(parent):
-            try:
-                for child in parent.children():
-                    name = child.window_text()
-                    ctrl_type = child.element_info.control_type
+                if ctrl_type in ("Text", "Pane", "Group") and "being recorded" in name:
+                    print(f"Found notification text: {name}")
 
-                    #print(f"Inspecting child name: {name}")
-                    #print(f"Inspecting ctrl_type: {ctrl_type}")
+                if ctrl_type == "Button" and "OK" in name:
+                    print(f"Found button: {name}. Clicking...")
+                    child.click_input()
+                    return True
 
-                    if ctrl_type in ("Text", "Pane", "Group") and "being recorded" in name:
-                        print(f"Found notification text: {name}")
+                if search_children_for_button(child):
+                    return True
+        except Exception as e:
+            # Traversal error, but continue searching other branches
+            pass
+        return False
 
-                    if ctrl_type == "Button" and name in ("OK"):
-                        print(f"Found button: {name}. Clicking...")
-                        child.click_input()
-                        return True
-
-                    if search_children_for_button(child):
-                        return True
-            except Exception as e:
-                print(f"Traversal error: {e}")
-            return False
-
-        if search_children_for_button(zoom_win):
-            print("Recording popup dismissed.")
-            return True
-        else:
-            print("Could not find the recording button.")
-            return False
-    except Exception as e:
-        print(f"Error dismissing stream notification: {e}")
-    return False
+    print("Trying to dismiss stream notification...")
+    if search_children_for_button(zoom_win):
+        print("Recording popup dismissed.")
+        return True
+    else:
+        print("Could not find the recording button.")
+        return False
     
 def dismiss_audio_popup(zoom_win):
     """
-    Dismisses the "Not hearing anything?" pop-up by targeting the button
-    with "Turn up volume" text.
+    Dismisses the "Not hearing anything?" pop-up using a recursive search.
     It searches for the pop-up as a child of the main Zoom window and then clicks
-    the designated button to dismiss it.
+    the designated "Close" button.
     """
-    try:
-        time.sleep(2)
-        print("Trying to dismiss audio popup...")
-        zoom_win.set_focus()
+    def search_children_for_popup(parent):
+        """Recursively searches for a pop-up and clicks its button."""
+        try:
+            for child in parent.children():
+                name = child.window_text()
+                ctrl_type = child.element_info.control_type
 
-        def search_children_for_popup(parent):
-            try:
-                for child in parent.children():
-                    name = child.window_text()
-                    ctrl_type = child.element_info.control_type
+                if ctrl_type in ("Text", "Pane", "Group") and "Not hearing anything?" in name:
+                    print(f"Found notification text: {name}")
 
-                    #print(f"Inspecting child name: {name}")
-                    #print(f"Inspecting ctrl_type: {ctrl_type}")
+                if ctrl_type == "Button" and "Close" in name:
+                    print(f"Found button: {name}. Clicking...")
+                    child.click_input()
+                    return True
+                
+                if search_children_for_popup(child):
+                    return True
+        except Exception as e:
+            # Traversal error, but continue searching other branches
+            pass
+        return False
 
-                    if ctrl_type in ("Text", "Pane", "Group") and "Not hearing anything?" in name:
-                        print(f"Found notification text: {name}")
-
-                    if ctrl_type == "Button" and name in ("Close"):
-                        print(f"Found button: {name}. Clicking...")
-                        child.click_input()
-                        return True
-                    
-                    if search_children_for_popup(child):
-                        return True
-            except Exception as e:
-                print(f"Traversal error: {e}")
-            return False
-
-        if search_children_for_popup(zoom_win):
-            print("Audio popup dismissed.")
-            return True
-        else:
-            print("Could not find the audio popup or 'Turn up volume' button.")
-            return False
-    except Exception as e:
-        print(f"Error dismissing audio popup: {e}")
-    return False
-
+    print("Trying to dismiss audio popup...")
+    if search_children_for_popup(zoom_win):
+        print("Audio popup dismissed.")
+        return True
+    else:
+        print("Could not find the audio popup or 'Close' button.")
+        return False
 
 if __name__ == '__main__':
-        while True:
-            # Get the active (foreground) window
-            try:
-                original_active_window = Desktop(backend="uia").window(active_only=True)
-                print("Active window title:", original_active_window.window_text())
-            except Exception as e:
-                print(f"Could not get the active window. Skipping focus restore.")
-                original_active_window = None
-            
-            stream_dismissed = False
-            poll_answered = False
-            audio_popup_dismissed = False
-            watchdog += 1
-
-            print("\n--- Iteration " + str(watchdog) + " ---")
-            
-            # Find the Zoom window only once per loop
-            zoom_windows = Desktop(backend="uia").windows(title_re=".*Zoom Meeting.*")
-            if not zoom_windows:
-                print("Zoom Meeting window not found. Please open Zoom.")
-                time.sleep(10)
-                continue
-            
-            zoom_win = zoom_windows[0]
-            
-            if answer_zoom_poll():
-                poll_answered = True
-                if original_active_window and original_active_window.exists():
-                    original_active_window.set_focus()
-
-            if dismiss_stream_notification(zoom_win):
-                stream_dismissed = True
-                if original_active_window and original_active_window.exists():
-                    original_active_window.set_focus()
-                
-            if dismiss_audio_popup(zoom_win):
-                audio_popup_dismissed = True
-                if original_active_window and original_active_window.exists():
-                    original_active_window.set_focus()
-
-            # Break the loop if all tasks are done or the watchdog limit is reached
-            if (stream_dismissed and poll_answered and audio_popup_dismissed) or watchdog > 500:
-                print("\nDone. All required popups have been handled or watchdog limit reached.")
-                break
-
+    watchdog = 0
+    while True:
+        print(f"\n--- Iteration {watchdog} ---")
+        
+        # Find the Zoom window only once per loop
+        zoom_windows = Desktop(backend="uia").windows(title_re=".*Zoom Meeting.*")
+        if not zoom_windows:
+            print("Zoom Meeting window not found. Please open Zoom.")
             time.sleep(10)
+            continue
+        
+        zoom_win = zoom_windows[0]
+        
+        # Check for each pop-up and handle it if found
+        answer_zoom_poll(qty_participants=1)
+        dismiss_stream_notification(zoom_win)
+        dismiss_audio_popup(zoom_win)
+        
+        watchdog += 1
+        time.sleep(10)
